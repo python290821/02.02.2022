@@ -5,7 +5,8 @@ import kivy
 from kivy.app import App 
 
 import time
-    
+import threading
+
 # The ProgressBar widget is used to
 # visualize the progress of some task
 from kivy.uix.progressbar import ProgressBar 
@@ -43,8 +44,17 @@ from kivy.uix.widget import Widget
 # value[.] The default value must be a value
 # that agrees with the Property type.
 from kivy.properties import ObjectProperty
-  
-  
+   
+class myThread (threading.Thread):
+   def __init__(self, progress_bar):
+      threading.Thread.__init__(self)
+      self.progress_bar = progress_bar
+
+   def run(self):
+        while self.progress_bar.value < 100:
+            self.progress_bar.value += 1
+            print(self.progress_bar.value)
+            time.sleep(1/25)
   
 # Create the widget class
 class MyWidget(Widget):
@@ -74,12 +84,9 @@ class MyWidget(Widget):
         self.progress_bar.value += 1
       
     def puopen(self, instance):
-        #Clock.schedule_interval(self.next, 1 / 25)
-        while self.progress_bar.value < 100:
-            self.progress_bar.value += 1
-            print(self.progress_bar.value)
-            time.sleep(1/100)
-  
+        t1 = myThread (self.progress_bar)
+        t1.start()
+ 
 # Create the App class 
 class MyApp(App):
     def build(self):
