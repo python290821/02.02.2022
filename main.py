@@ -1,155 +1,192 @@
+'''
+Kivy Catalog
+============
+
+The Kivy Catalog viewer showcases widgets available in Kivy
+and allows interactive editing of kivy language code to get immediate
+feedback. You should see a two panel screen with a menu spinner button
+(starting with 'Welcome') and other controls across the top.The left pane
+contains kivy (.kv) code, and the right side is that code rendered. You can
+edit the left pane, though changes will be lost when you use the menu
+spinner button. The catalog will show you dozens of .kv examples controlling
+different widgets and layouts.
+
+The catalog's interface is set in the file kivycatalog.kv, while the
+interfaces for each menu option are set in containers_kvs directory. To
+add a new .kv file to the Kivy Catalog, add a .kv file into the container_kvs
+directory and reference that file in the ScreenManager section of
+kivycatalog.kv.
+
+Known bugs include some issue with the drop
+'''
+import kivy
+kivy.require('1.4.2')
+import os
+import sys
 from kivy.app import App
-from kivy.uix.widget import Widget
+from kivy.factory import Factory
+from kivy.lang import Builder, Parser, ParserException
 from kivy.properties import ObjectProperty
-from kivy.uix.image import Image
-from kivy.core.window import Window
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.codeinput import CodeInput
+from kivy.animation import Animation
 from kivy.clock import Clock
 
-from pipe import Pipe
+CATALOG_ROOT = os.path.dirname(__file__)
 
-class Background(Widget):
-    cloud_texture = ObjectProperty(None)
-    floor_texture = ObjectProperty(None)
+# Config.set('graphics', 'width', '1024')
+# Config.set('graphics', 'height', '768')
+
+'''List of classes that need to be instantiated in the factory from .kv files.
+'''
+CONTAINER_KVS = os.path.join(CATALOG_ROOT, 'container_kvs')
+CONTAINER_CLASSES = [c[:-3] for c in os.listdir(CONTAINER_KVS)
+    if c.endswith('.kv')]
+
+
+class Container(BoxLayout):
+    '''A container is essentially a class that loads its root from a known
+    .kv file.
+
+    The name of the .kv file is taken from the Container's class.
+    We can't just use kv rules because the class may be edited
+    in the interface and reloaded by the user.
+    See :meth: change_kv where this happens.
+    '''
 
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+        super(Container, self).__init__(**kwargs)
+        self.previous_text = open(self.kv_file).read()
+        parser = Parser(content=self.previous_text)
+        widget = Factory.get(parser.root.name)()
+        Builder._apply_rule(widget, parser.root, parser.root)
+        self.add_widget(widget)
 
-        # Create textures
-        self.cloud_texture = Image(source="cloud.png").texture
-        self.cloud_texture.wrap = 'repeat'
-        self.cloud_texture.uvsize = (Window.width / self.cloud_texture.width, -1)
-
-        self.floor_texture = Image(source="floor.png").texture
-        self.floor_texture.wrap = 'repeat'
-        self.floor_texture.uvsize = (Window.width / self.floor_texture.width, -1)
-
-    def on_size(self, *args):
-        self.cloud_texture.uvsize = (self.width / self.cloud_texture.width, -1)
-        self.floor_texture.uvsize = (self.width / self.floor_texture.width, -1)
-
-    def scroll_textures(self, time_passed):
-        # Update the uvpos of the texture
-        self.cloud_texture.uvpos = ( (self.cloud_texture.uvpos[0] + time_passed/2.0)%Window.width , self.cloud_texture.uvpos[1])
-        self.floor_texture.uvpos = ( (self.floor_texture.uvpos[0] + time_passed)%Window.width, self.floor_texture.uvpos[1])
-
-        # Redraw the texture
-        texture = self.property('cloud_texture')
-        texture.dispatch(self)
-
-        texture = self.property('floor_texture')
-        texture.dispatch(self)
-
-from random import randint
-from kivy.properties import NumericProperty
-
-class Bird(Image):
-    velocity = NumericProperty(0)
-
-    def on_touch_down(self, touch):
-        self.source = "bird2.png"
-        self.velocity = 150
-        super().on_touch_down(touch)
-
-    def on_touch_up(self, touch):
-        self.source = "bird1.png"
-        super().on_touch_up(touch)
+    @property
+    def kv_file(self):
+        '''Get the name of the kv file, a lowercase version of the class
+        name.
+        '''
+        return os.path.join(CONTAINER_KVS, self.__class__.__name__ + '.kv')
 
 
-
-class MainApp(App):
-    pipes = []
-    GRAVITY = 300
-    was_colliding = False
-
-    #def on_start(self):
-    #    Clock.schedule_interval(self.root.ids.background.scroll_textures, 1/60.)
-
-    def move_bird(self, time_passed):
-        bird = self.root.ids.bird
-        bird.y = bird.y + bird.velocity * time_passed
-        bird.velocity = bird.velocity - self.GRAVITY * time_passed
-        self.check_collision()
-
-    def check_collision(self):
-        bird = self.root.ids.bird
-        # Go through each pipe and check if it collides
-        is_colliding = False
-        for pipe in self.pipes:
-            if pipe.collide_widget(bird):
-                is_colliding = True
-                # Check if bird is between the gap
-                if bird.y < (pipe.pipe_center - pipe.GAP_SIZE/2.0):
-                    self.game_over()
-                if bird.top > (pipe.pipe_center + pipe.GAP_SIZE/2.0):
-                    self.game_over()
-        if bird.y < 96:
-            self.game_over()
-        if bird.top > Window.height:
-            self.game_over()
-
-        if self.was_colliding and not is_colliding:
-            self.root.ids.score.text = str(int(self.root.ids.score.text)+1)
-        self.was_colliding = is_colliding
-
-    def game_over(self):
-        self.root.ids.bird.pos = (20, (self.root.height - 96) / 2.0)
-        for pipe in self.pipes:
-            self.root.remove_widget(pipe)
-        self.frames.cancel()
-        self.root.ids.start_button.disabled = False
-        self.root.ids.start_button.opacity = 1
+for class_name in CONTAINER_CLASSES:
+    globals()[class_name] = type(class_name, (Container,), {})
 
 
-    def next_frame(self, time_passed):
-        self.move_bird(time_passed)
-        self.move_pipes(time_passed)
-        self.root.ids.background.scroll_textures(time_passed)
+class KivyRenderTextInput(CodeInput):
+    def keyboard_on_key_down(self, window, keycode, text, modifiers):
+        is_osx = sys.platform == 'darwin'
+        # Keycodes on OSX:
+        ctrl, cmd = 64, 1024
+        key, key_str = keycode
 
-    def start_game(self):
-        self.root.ids.score.text = "0"
-        self.was_colliding = False
-        self.pipes = []
-        #Clock.schedule_interval(self.move_bird, 1/60.)
-        self.frames = Clock.schedule_interval(self.next_frame, 1/1.)
+        if text and key not in (list(self.interesting_keys.keys()) + [27]):
+            # This allows *either* ctrl *or* cmd, but not both.
+            if modifiers == ['ctrl'] or (is_osx and modifiers == ['meta']):
+                if key == ord('s'):
+                    self.catalog.change_kv(True)
+                    return
 
-        # Create the pipes
-        num_pipes = 5
-        distance_between_pipes = Window.width / (num_pipes - 1)
-        for i in range(num_pipes):
-            pipe = Pipe()
-            pipe.pipe_center = randint(96 + 100, self.root.height - 100)
-            pipe.size_hint = (None, None)
-            pipe.pos = (Window.width + i*distance_between_pipes, 96)
-            pipe.size = (64, self.root.height - 96)
-
-            self.pipes.append(pipe)
-            self.root.add_widget(pipe)
-
-        # Move the pipes
-        #Clock.schedule_interval(self.move_pipes, 1/60.)
-
-    def move_pipes(self, time_passed):
-        # Move pipes
-        for pipe in self.pipes:
-            pipe.x -= time_passed * 100
-
-        # Check if we need to reposition the pipe at the right side
-        num_pipes = 5
-        distance_between_pipes = Window.width / (num_pipes - 1)
-        pipe_xs = list(map(lambda pipe: pipe.x, self.pipes))
-        right_most_x = max(pipe_xs)
-        if right_most_x <= Window.width - distance_between_pipes:
-            most_left_pipe = self.pipes[pipe_xs.index(min(pipe_xs))]
-            most_left_pipe.x = Window.width
+        return super(KivyRenderTextInput, self).keyboard_on_key_down(
+            window, keycode, text, modifiers)
 
 
+class Catalog(BoxLayout):
+    '''Catalog of widgets. This is the root widget of the app. It contains
+    a tabbed pain of widgets that can be displayed and a textbox where .kv
+    language files for widgets being demoed can be edited.
+
+    The entire interface for the Catalog is defined in kivycatalog.kv,
+    although individual containers are defined in the container_kvs
+    directory.
+
+    To add a container to the catalog,
+    first create the .kv file in container_kvs
+    The name of the file (sans .kv) will be the name of the widget available
+    inside the kivycatalog.kv
+    Finally modify kivycatalog.kv to add an AccordionItem
+    to hold the new widget.
+    Follow the examples in kivycatalog.kv to ensure the item
+    has an appropriate id and the class has been referenced.
+
+    You do not need to edit any python code, just .kv language files!
+    '''
+    language_box = ObjectProperty()
+    screen_manager = ObjectProperty()
+    _change_kv_ev = None
+
+    def __init__(self, **kwargs):
+        self._previously_parsed_text = ''
+        super(Catalog, self).__init__(**kwargs)
+        self.show_kv(None, 'Welcome')
+        self.carousel = None
+
+    def show_kv(self, instance, value):
+        '''Called when an a item is selected, we need to show the .kv language
+        file associated with the newly revealed container.'''
+
+        self.screen_manager.current = value
+
+        child = self.screen_manager.current_screen.children[0]
+        with open(child.kv_file, 'rb') as file:
+            self.language_box.text = file.read().decode('utf8')
+        if self._change_kv_ev is not None:
+            self._change_kv_ev.cancel()
+        self.change_kv()
+        # reset undo/redo history
+        self.language_box.reset_undo()
+
+    def schedule_reload(self):
+        if self.auto_reload:
+            txt = self.language_box.text
+            child = self.screen_manager.current_screen.children[0]
+            if txt == child.previous_text:
+                return
+            child.previous_text = txt
+            if self._change_kv_ev is not None:
+                self._change_kv_ev.cancel()
+            if self._change_kv_ev is None:
+                self._change_kv_ev = Clock.create_trigger(self.change_kv, 2)
+            self._change_kv_ev()
+
+    def change_kv(self, *largs):
+        '''Called when the update button is clicked. Needs to update the
+        interface for the currently active kv widget, if there is one based
+        on the kv file the user entered. If there is an error in their kv
+        syntax, show a nice popup.'''
+
+        txt = self.language_box.text
+        kv_container = self.screen_manager.current_screen.children[0]
+        try:
+            parser = Parser(content=txt)
+            kv_container.clear_widgets()
+            widget = Factory.get(parser.root.name)()
+            Builder._apply_rule(widget, parser.root, parser.root)
+            kv_container.add_widget(widget)
+        except (SyntaxError, ParserException) as e:
+            self.show_error(e)
+        except Exception as e:
+            self.show_error(e)
+
+    def show_error(self, e):
+        self.info_label.text = str(e).encode('utf-8')
+        self.anim = Animation(top=190.0, opacity=1, d=2, t='in_back') +\
+            Animation(top=190.0, d=3) +\
+            Animation(top=0, opacity=0, d=2)
+        self.anim.start(self.info_label)
 
 
+class KivyCatalogApp(App):
+    '''The kivy App that runs the main root. All we do is build a catalog
+    widget into the root.'''
+
+    def build(self):
+        return Catalog()
+
+    def on_pause(self):
+        return True
 
 
-
-
-
-
-
-MainApp().run()
+if __name__ == "__main__":
+    KivyCatalogApp().run()
