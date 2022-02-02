@@ -1,82 +1,163 @@
-import kivy
-kivy.require('1.1.1')
+'''
+Notes
+=====
 
+Simple application for reading/writing notes.
+
+'''
+
+__version__ = '1.0'
+
+import json
+from os.path import join, exists
 from kivy.app import App
-from kivy.uix.widget import Widget
-from kivy.properties import (
-    NumericProperty, ReferenceListProperty, ObjectProperty, BooleanProperty
-)
-from kivy.vector import Vector
+from kivy.uix.screenmanager import ScreenManager, Screen, SlideTransition
+from kivy.properties import ListProperty, StringProperty, \
+        NumericProperty, BooleanProperty, AliasProperty
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.floatlayout import FloatLayout
 from kivy.clock import Clock
 
 
-class PongPaddle(Widget):
-    score = NumericProperty(0)
-    can_bounce = BooleanProperty(True)
+class MutableTextInput(FloatLayout):
 
-    def bounce_ball(self, ball):
-        if self.collide_widget(ball) and self.can_bounce:
-            vx, vy = ball.velocity
-            offset = (ball.center_y - self.center_y) / (self.height / 2)
-            bounced = Vector(-1 * vx, vy)
-            vel = bounced * 1.1
-            ball.velocity = vel.x, vel.y + offset
-            self.can_bounce = False
-        elif not self.collide_widget(ball) and not self.can_bounce:
-            self.can_bounce = True
+    text = StringProperty()
+    multiline = BooleanProperty(True)
 
+    def __init__(self, **kwargs):
+        super(MutableTextInput, self).__init__(**kwargs)
+        Clock.schedule_once(self.prepare, 0)
 
-class PongBall(Widget):
-    velocity_x = NumericProperty(0)
-    velocity_y = NumericProperty(0)
-    velocity = ReferenceListProperty(velocity_x, velocity_y)
+    def prepare(self, *args):
+        self.w_textinput = self.ids.w_textinput.__self__
+        self.w_label = self.ids.w_label.__self__
+        self.view()
 
-    def move(self):
-        self.pos = Vector(*self.velocity) + self.pos
+    def on_touch_down(self, touch):
+        if self.collide_point(*touch.pos) and touch.is_double_tap:
+            self.edit()
+        return super(MutableTextInput, self).on_touch_down(touch)
 
+    def edit(self):
+        self.clear_widgets()
+        self.add_widget(self.w_textinput)
+        self.w_textinput.focus = True
 
-class PongGame(Widget):
-    ball = ObjectProperty(None)
-    player1 = ObjectProperty(None)
-    player2 = ObjectProperty(None)
+    def view(self):
+        self.clear_widgets()
+        if not self.text:
+            self.w_label.text = "Double tap/click to edit"
+        self.add_widget(self.w_label)
 
-    def serve_ball(self, vel=(4, 0)):
-        self.ball.center = self.center
-        self.ball.velocity = vel
-
-    def update(self, dt):
-        self.ball.move()
-
-        # bounce ball off paddles
-        self.player1.bounce_ball(self.ball)
-        self.player2.bounce_ball(self.ball)
-
-        # bounce ball off bottom or top
-        if (self.ball.y < self.y) or (self.ball.top > self.top):
-            self.ball.velocity_y *= -1
-
-        # went off a side to score point?
-        if self.ball.x < self.x:
-            self.player2.score += 1
-            self.serve_ball(vel=(4, 0))
-        if self.ball.right > self.width:
-            self.player1.score += 1
-            self.serve_ball(vel=(-4, 0))
-
-    def on_touch_move(self, touch):
-        if touch.x < self.width / 3:
-            self.player1.center_y = touch.y
-        if touch.x > self.width - self.width / 3:
-            self.player2.center_y = touch.y
+    def check_focus_and_view(self, textinput):
+        if not textinput.focus:
+            self.text = textinput.text
+            self.view()
 
 
-class PongApp(App):
+class NoteView(Screen):
+
+    note_index = NumericProperty()
+    note_title = StringProperty()
+    note_content = StringProperty()
+
+
+class NoteListItem(BoxLayout):
+    note_content = StringProperty()
+    note_title = StringProperty()
+    note_index = NumericProperty()
+
+
+class Notes(Screen):
+
+    data = ListProperty()
+
+    def _get_data_for_widgets(self):
+        return [{
+            'note_index': index,
+            'note_content': item['content'],
+            'note_title': item['title']}
+            for index, item in enumerate(self.data)]
+
+    data_for_widgets = AliasProperty(_get_data_for_widgets, bind=['data'])
+
+
+class NoteApp(App):
+
     def build(self):
-        game = PongGame()
-        game.serve_ball()
-        Clock.schedule_interval(game.update, 1.0 / 60.0)
-        return game
+        self.notes = Notes(name='notes')
+        self.load_notes()
+
+        self.transition = SlideTransition(duration=.35)
+        root = ScreenManager(transition=self.transition)
+        root.add_widget(self.notes)
+        return root
+
+    def load_notes(self):
+        if not exists(self.notes_fn):
+            return
+        with open(self.notes_fn) as fd:
+            data = json.load(fd)
+        self.notes.data = data
+
+    def save_notes(self):
+        with open(self.notes_fn, 'w') as fd:
+            json.dump(self.notes.data, fd)
+
+    def del_note(self, note_index):
+        del self.notes.data[note_index]
+        self.save_notes()
+        self.refresh_notes()
+        self.go_notes()
+
+    def edit_note(self, note_index):
+        note = self.notes.data[note_index]
+        name = 'note{}'.format(note_index)
+
+        if self.root.has_screen(name):
+            self.root.remove_widget(self.root.get_screen(name))
+
+        view = NoteView(
+            name=name,
+            note_index=note_index,
+            note_title=note.get('title'),
+            note_content=note.get('content'))
+
+        self.root.add_widget(view)
+        self.transition.direction = 'left'
+        self.root.current = view.name
+
+    def add_note(self):
+        self.notes.data.append({'title': 'New note', 'content': ''})
+        note_index = len(self.notes.data) - 1
+        self.edit_note(note_index)
+
+    def set_note_content(self, note_index, note_content):
+        self.notes.data[note_index]['content'] = note_content
+        data = self.notes.data
+        self.notes.data = []
+        self.notes.data = data
+        self.save_notes()
+        self.refresh_notes()
+
+    def set_note_title(self, note_index, note_title):
+        self.notes.data[note_index]['title'] = note_title
+        self.save_notes()
+        self.refresh_notes()
+
+    def refresh_notes(self):
+        data = self.notes.data
+        self.notes.data = []
+        self.notes.data = data
+
+    def go_notes(self):
+        self.transition.direction = 'right'
+        self.root.current = 'notes'
+
+    @property
+    def notes_fn(self):
+        return join(self.user_data_dir, 'notes.json')
 
 
 if __name__ == '__main__':
-    PongApp().run()
+    NoteApp().run()
