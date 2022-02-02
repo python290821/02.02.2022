@@ -1,192 +1,77 @@
 '''
-Kivy Catalog
-============
+3D Rotating Monkey Head
+========================
 
-The Kivy Catalog viewer showcases widgets available in Kivy
-and allows interactive editing of kivy language code to get immediate
-feedback. You should see a two panel screen with a menu spinner button
-(starting with 'Welcome') and other controls across the top.The left pane
-contains kivy (.kv) code, and the right side is that code rendered. You can
-edit the left pane, though changes will be lost when you use the menu
-spinner button. The catalog will show you dozens of .kv examples controlling
-different widgets and layouts.
+This example demonstrates using OpenGL to display a rotating monkey head. This
+includes loading a Blender OBJ file, shaders written in OpenGL's Shading
+Language (GLSL), and using scheduled callbacks.
 
-The catalog's interface is set in the file kivycatalog.kv, while the
-interfaces for each menu option are set in containers_kvs directory. To
-add a new .kv file to the Kivy Catalog, add a .kv file into the container_kvs
-directory and reference that file in the ScreenManager section of
-kivycatalog.kv.
-
-Known bugs include some issue with the drop
+The monkey.obj file is an OBJ file output from the Blender free 3D creation
+software. The file is text, listing vertices and faces and is loaded
+using a class in the file objloader.py. The file simple.glsl is
+a simple vertex and fragment shader written in GLSL.
 '''
-import kivy
-kivy.require('1.4.2')
-import os
-import sys
+
 from kivy.app import App
-from kivy.factory import Factory
-from kivy.lang import Builder, Parser, ParserException
-from kivy.properties import ObjectProperty
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.codeinput import CodeInput
-from kivy.animation import Animation
 from kivy.clock import Clock
-
-CATALOG_ROOT = os.path.dirname(__file__)
-
-# Config.set('graphics', 'width', '1024')
-# Config.set('graphics', 'height', '768')
-
-'''List of classes that need to be instantiated in the factory from .kv files.
-'''
-CONTAINER_KVS = os.path.join(CATALOG_ROOT, 'container_kvs')
-CONTAINER_CLASSES = [c[:-3] for c in os.listdir(CONTAINER_KVS)
-    if c.endswith('.kv')]
+from kivy.core.window import Window
+from kivy.uix.widget import Widget
+from kivy.resources import resource_find
+from kivy.graphics.transformation import Matrix
+from kivy.graphics.opengl import glEnable, glDisable, GL_DEPTH_TEST
+from kivy.graphics import RenderContext, Callback, PushMatrix, PopMatrix, \
+    Color, Translate, Rotate, Mesh, UpdateNormalMatrix
+from objloader import ObjFile
 
 
-class Container(BoxLayout):
-    '''A container is essentially a class that loads its root from a known
-    .kv file.
-
-    The name of the .kv file is taken from the Container's class.
-    We can't just use kv rules because the class may be edited
-    in the interface and reloaded by the user.
-    See :meth: change_kv where this happens.
-    '''
-
+class Renderer(Widget):
     def __init__(self, **kwargs):
-        super(Container, self).__init__(**kwargs)
-        self.previous_text = open(self.kv_file).read()
-        parser = Parser(content=self.previous_text)
-        widget = Factory.get(parser.root.name)()
-        Builder._apply_rule(widget, parser.root, parser.root)
-        self.add_widget(widget)
+        self.canvas = RenderContext(compute_normal_mat=True)
+        self.canvas.shader.source = resource_find('simple.glsl')
+        self.scene = ObjFile(resource_find("monkey.obj"))
+        super(Renderer, self).__init__(**kwargs)
+        with self.canvas:
+            self.cb = Callback(self.setup_gl_context)
+            PushMatrix()
+            self.setup_scene()
+            PopMatrix()
+            self.cb = Callback(self.reset_gl_context)
+        Clock.schedule_interval(self.update_glsl, 1 / 60.)
 
-    @property
-    def kv_file(self):
-        '''Get the name of the kv file, a lowercase version of the class
-        name.
-        '''
-        return os.path.join(CONTAINER_KVS, self.__class__.__name__ + '.kv')
+    def setup_gl_context(self, *args):
+        glEnable(GL_DEPTH_TEST)
 
+    def reset_gl_context(self, *args):
+        glDisable(GL_DEPTH_TEST)
 
-for class_name in CONTAINER_CLASSES:
-    globals()[class_name] = type(class_name, (Container,), {})
+    def update_glsl(self, delta):
+        asp = self.width / float(self.height)
+        proj = Matrix().view_clip(-asp, asp, -1, 1, 1, 100, 1)
+        self.canvas['projection_mat'] = proj
+        self.canvas['diffuse_light'] = (1.0, 1.0, 0.8)
+        self.canvas['ambient_light'] = (0.1, 0.1, 0.1)
+        self.rot.angle += delta * 100
 
-
-class KivyRenderTextInput(CodeInput):
-    def keyboard_on_key_down(self, window, keycode, text, modifiers):
-        is_osx = sys.platform == 'darwin'
-        # Keycodes on OSX:
-        ctrl, cmd = 64, 1024
-        key, key_str = keycode
-
-        if text and key not in (list(self.interesting_keys.keys()) + [27]):
-            # This allows *either* ctrl *or* cmd, but not both.
-            if modifiers == ['ctrl'] or (is_osx and modifiers == ['meta']):
-                if key == ord('s'):
-                    self.catalog.change_kv(True)
-                    return
-
-        return super(KivyRenderTextInput, self).keyboard_on_key_down(
-            window, keycode, text, modifiers)
-
-
-class Catalog(BoxLayout):
-    '''Catalog of widgets. This is the root widget of the app. It contains
-    a tabbed pain of widgets that can be displayed and a textbox where .kv
-    language files for widgets being demoed can be edited.
-
-    The entire interface for the Catalog is defined in kivycatalog.kv,
-    although individual containers are defined in the container_kvs
-    directory.
-
-    To add a container to the catalog,
-    first create the .kv file in container_kvs
-    The name of the file (sans .kv) will be the name of the widget available
-    inside the kivycatalog.kv
-    Finally modify kivycatalog.kv to add an AccordionItem
-    to hold the new widget.
-    Follow the examples in kivycatalog.kv to ensure the item
-    has an appropriate id and the class has been referenced.
-
-    You do not need to edit any python code, just .kv language files!
-    '''
-    language_box = ObjectProperty()
-    screen_manager = ObjectProperty()
-    _change_kv_ev = None
-
-    def __init__(self, **kwargs):
-        self._previously_parsed_text = ''
-        super(Catalog, self).__init__(**kwargs)
-        self.show_kv(None, 'Welcome')
-        self.carousel = None
-
-    def show_kv(self, instance, value):
-        '''Called when an a item is selected, we need to show the .kv language
-        file associated with the newly revealed container.'''
-
-        self.screen_manager.current = value
-
-        child = self.screen_manager.current_screen.children[0]
-        with open(child.kv_file, 'rb') as file:
-            self.language_box.text = file.read().decode('utf8')
-        if self._change_kv_ev is not None:
-            self._change_kv_ev.cancel()
-        self.change_kv()
-        # reset undo/redo history
-        self.language_box.reset_undo()
-
-    def schedule_reload(self):
-        if self.auto_reload:
-            txt = self.language_box.text
-            child = self.screen_manager.current_screen.children[0]
-            if txt == child.previous_text:
-                return
-            child.previous_text = txt
-            if self._change_kv_ev is not None:
-                self._change_kv_ev.cancel()
-            if self._change_kv_ev is None:
-                self._change_kv_ev = Clock.create_trigger(self.change_kv, 2)
-            self._change_kv_ev()
-
-    def change_kv(self, *largs):
-        '''Called when the update button is clicked. Needs to update the
-        interface for the currently active kv widget, if there is one based
-        on the kv file the user entered. If there is an error in their kv
-        syntax, show a nice popup.'''
-
-        txt = self.language_box.text
-        kv_container = self.screen_manager.current_screen.children[0]
-        try:
-            parser = Parser(content=txt)
-            kv_container.clear_widgets()
-            widget = Factory.get(parser.root.name)()
-            Builder._apply_rule(widget, parser.root, parser.root)
-            kv_container.add_widget(widget)
-        except (SyntaxError, ParserException) as e:
-            self.show_error(e)
-        except Exception as e:
-            self.show_error(e)
-
-    def show_error(self, e):
-        self.info_label.text = str(e).encode('utf-8')
-        self.anim = Animation(top=190.0, opacity=1, d=2, t='in_back') +\
-            Animation(top=190.0, d=3) +\
-            Animation(top=0, opacity=0, d=2)
-        self.anim.start(self.info_label)
+    def setup_scene(self):
+        Color(1, 1, 1, 1)
+        PushMatrix()
+        Translate(0, 0, -3)
+        self.rot = Rotate(1, 0, 1, 0)
+        m = list(self.scene.objects.values())[0]
+        UpdateNormalMatrix()
+        self.mesh = Mesh(
+            vertices=m.vertices,
+            indices=m.indices,
+            fmt=m.vertex_format,
+            mode='triangles',
+        )
+        PopMatrix()
 
 
-class KivyCatalogApp(App):
-    '''The kivy App that runs the main root. All we do is build a catalog
-    widget into the root.'''
-
+class RendererApp(App):
     def build(self):
-        return Catalog()
-
-    def on_pause(self):
-        return True
+        return Renderer()
 
 
 if __name__ == "__main__":
-    KivyCatalogApp().run()
+    RendererApp().run()
