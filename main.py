@@ -1,77 +1,90 @@
-'''
-3D Rotating Monkey Head
-========================
+import kivy  
+       
+# base Class of your App inherits from the App class.    
+# app:always refers to the instance of your application   
+from kivy.app import App 
 
-This example demonstrates using OpenGL to display a rotating monkey head. This
-includes loading a Blender OBJ file, shaders written in OpenGL's Shading
-Language (GLSL), and using scheduled callbacks.
-
-The monkey.obj file is an OBJ file output from the Blender free 3D creation
-software. The file is text, listing vertices and faces and is loaded
-using a class in the file objloader.py. The file simple.glsl is
-a simple vertex and fragment shader written in GLSL.
-'''
-
-from kivy.app import App
+import time
+    
+# The ProgressBar widget is used to
+# visualize the progress of some task
+from kivy.uix.progressbar import ProgressBar 
+  
+# BoxLayout arranges children in a vertical or horizontal box. 
+# or help to put the children at the desired location. 
+from kivy.uix.boxlayout import BoxLayout
+  
+# The Clock object allows you to schedule a
+# function call in the future
 from kivy.clock import Clock
-from kivy.core.window import Window
+   
+# The Button is a Label with associated actions 
+# that is triggered when the button 
+# is pressed (or released after a click / touch).  
+from kivy.uix.button import Button
+  
+# Popup widget is used to create popups. 
+# By default, the popup will cover 
+# the whole “parent” window. 
+# When you are creating a popup, 
+# you must at least set a Popup.title and Popup.content.
+from kivy.uix.popup import Popup
+  
+# A Widget is the base building block
+# of GUI interfaces in Kivy.
+# It provides a Canvas that
+# can be used to draw on screen.
 from kivy.uix.widget import Widget
-from kivy.resources import resource_find
-from kivy.graphics.transformation import Matrix
-from kivy.graphics.opengl import glEnable, glDisable, GL_DEPTH_TEST
-from kivy.graphics import RenderContext, Callback, PushMatrix, PopMatrix, \
-    Color, Translate, Rotate, Mesh, UpdateNormalMatrix
-from objloader import ObjFile
-
-
-class Renderer(Widget):
-    def __init__(self, **kwargs):
-        self.canvas = RenderContext(compute_normal_mat=True)
-        self.canvas.shader.source = resource_find('simple.glsl')
-        self.scene = ObjFile(resource_find("monkey.obj"))
-        super(Renderer, self).__init__(**kwargs)
-        with self.canvas:
-            self.cb = Callback(self.setup_gl_context)
-            PushMatrix()
-            self.setup_scene()
-            PopMatrix()
-            self.cb = Callback(self.reset_gl_context)
-        Clock.schedule_interval(self.update_glsl, 1 / 60.)
-
-    def setup_gl_context(self, *args):
-        glEnable(GL_DEPTH_TEST)
-
-    def reset_gl_context(self, *args):
-        glDisable(GL_DEPTH_TEST)
-
-    def update_glsl(self, delta):
-        asp = self.width / float(self.height)
-        proj = Matrix().view_clip(-asp, asp, -1, 1, 1, 100, 1)
-        self.canvas['projection_mat'] = proj
-        self.canvas['diffuse_light'] = (1.0, 1.0, 0.8)
-        self.canvas['ambient_light'] = (0.1, 0.1, 0.1)
-        self.rot.angle += delta * 100
-
-    def setup_scene(self):
-        Color(1, 1, 1, 1)
-        PushMatrix()
-        Translate(0, 0, -3)
-        self.rot = Rotate(1, 0, 1, 0)
-        m = list(self.scene.objects.values())[0]
-        UpdateNormalMatrix()
-        self.mesh = Mesh(
-            vertices=m.vertices,
-            indices=m.indices,
-            fmt=m.vertex_format,
-            mode='triangles',
+  
+# ObjectProperty is a specialised sub-class
+# of the Property class, so it has the same
+# initialisation parameters as it:
+# By default, a Property always takes a default
+# value[.] The default value must be a value
+# that agrees with the Property type.
+from kivy.properties import ObjectProperty
+  
+  
+  
+# Create the widget class
+class MyWidget(Widget):
+  
+    progress_bar = ObjectProperty()
+      
+    def __init__(self, **kwa):
+        super(MyWidget, self).__init__(**kwa)
+          
+        self.progress_bar = ProgressBar()
+        self.popup = Popup(
+            title ='Download',
+            content = self.progress_bar
         )
-        PopMatrix()
-
-
-class RendererApp(App):
+        self.popup.bind(on_open = self.puopen)
+        self.add_widget(Button(text ='Download', on_release = self.pop))
+  
+    # the function which works when you click = k the button 
+    def pop(self, instance):
+        self.progress_bar.value = 1
+        self.popup.open()
+  
+    # To continuously increasing the value of pb.
+    def next(self, dt):
+        if self.progress_bar.value>= 100:
+            return False
+        self.progress_bar.value += 1
+      
+    def puopen(self, instance):
+        #Clock.schedule_interval(self.next, 1 / 25)
+        while self.progress_bar.value < 100:
+            self.progress_bar.value += 1
+            print(self.progress_bar.value)
+            time.sleep(1/100)
+  
+# Create the App class 
+class MyApp(App):
     def build(self):
-        return Renderer()
-
-
-if __name__ == "__main__":
-    RendererApp().run()
+        return MyWidget()
+  
+# run the App
+if __name__ in ("__main__"):
+    MyApp().run()
