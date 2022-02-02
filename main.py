@@ -1,77 +1,63 @@
-'''
-3D Rotating Monkey Head
-========================
-
-This example demonstrates using OpenGL to display a rotating monkey head. This
-includes loading a Blender OBJ file, shaders written in OpenGL's Shading
-Language (GLSL), and using scheduled callbacks.
-
-The monkey.obj file is an OBJ file output from the Blender free 3D creation
-software. The file is text, listing vertices and faces and is loaded
-using a class in the file objloader.py. The file simple.glsl is
-a simple vertex and fragment shader written in GLSL.
-'''
-
 from kivy.app import App
-from kivy.clock import Clock
-from kivy.core.window import Window
-from kivy.uix.widget import Widget
-from kivy.resources import resource_find
-from kivy.graphics.transformation import Matrix
-from kivy.graphics.opengl import glEnable, glDisable, GL_DEPTH_TEST
-from kivy.graphics import RenderContext, Callback, PushMatrix, PopMatrix, \
-    Color, Translate, Rotate, Mesh, UpdateNormalMatrix
-from objloader import ObjFile
+from kivy.uix.floatlayout import FloatLayout
+from kivy.factory import Factory
+from kivy.properties import ObjectProperty
+from kivy.uix.popup import Popup
+
+import os
+
+class LoadDialog(FloatLayout):
+    load = ObjectProperty(None)
+    cancel = ObjectProperty(None)
 
 
-class Renderer(Widget):
-    def __init__(self, **kwargs):
-        self.canvas = RenderContext(compute_normal_mat=True)
-        self.canvas.shader.source = resource_find('simple.glsl')
-        self.scene = ObjFile(resource_find("monkey.obj"))
-        super(Renderer, self).__init__(**kwargs)
-        with self.canvas:
-            self.cb = Callback(self.setup_gl_context)
-            PushMatrix()
-            self.setup_scene()
-            PopMatrix()
-            self.cb = Callback(self.reset_gl_context)
-        Clock.schedule_interval(self.update_glsl, 1 / 60.)
-
-    def setup_gl_context(self, *args):
-        glEnable(GL_DEPTH_TEST)
-
-    def reset_gl_context(self, *args):
-        glDisable(GL_DEPTH_TEST)
-
-    def update_glsl(self, delta):
-        asp = self.width / float(self.height)
-        proj = Matrix().view_clip(-asp, asp, -1, 1, 1, 100, 1)
-        self.canvas['projection_mat'] = proj
-        self.canvas['diffuse_light'] = (1.0, 1.0, 0.8)
-        self.canvas['ambient_light'] = (0.1, 0.1, 0.1)
-        self.rot.angle += delta * 100
-
-    def setup_scene(self):
-        Color(1, 1, 1, 1)
-        PushMatrix()
-        Translate(0, 0, -3)
-        self.rot = Rotate(1, 0, 1, 0)
-        m = list(self.scene.objects.values())[0]
-        UpdateNormalMatrix()
-        self.mesh = Mesh(
-            vertices=m.vertices,
-            indices=m.indices,
-            fmt=m.vertex_format,
-            mode='triangles',
-        )
-        PopMatrix()
+class SaveDialog(FloatLayout):
+    save = ObjectProperty(None)
+    text_input = ObjectProperty(None)
+    cancel = ObjectProperty(None)
 
 
-class RendererApp(App):
-    def build(self):
-        return Renderer()
+class Root(FloatLayout):
+    loadfile = ObjectProperty(None)
+    savefile = ObjectProperty(None)
+    text_input = ObjectProperty(None)
+
+    def dismiss_popup(self):
+        self._popup.dismiss()
+
+    def show_load(self):
+        content = LoadDialog(load=self.load, cancel=self.dismiss_popup)
+        self._popup = Popup(title="Load file", content=content,
+                            size_hint=(0.9, 0.9))
+        self._popup.open()
+
+    def show_save(self):
+        content = SaveDialog(save=self.save, cancel=self.dismiss_popup)
+        self._popup = Popup(title="Save file", content=content,
+                            size_hint=(0.9, 0.9))
+        self._popup.open()
+
+    def load(self, path, filename):
+        with open(os.path.join(path, filename[0])) as stream:
+            self.text_input.text = stream.read()
+
+        self.dismiss_popup()
+
+    def save(self, path, filename):
+        with open(os.path.join(path, filename), 'w') as stream:
+            stream.write(self.text_input.text)
+
+        self.dismiss_popup()
 
 
-if __name__ == "__main__":
-    RendererApp().run()
+class Editor(App):
+    pass
+
+
+Factory.register('Root', cls=Root)
+Factory.register('LoadDialog', cls=LoadDialog)
+Factory.register('SaveDialog', cls=SaveDialog)
+
+
+if __name__ == '__main__':
+    Editor().run()
