@@ -94,7 +94,7 @@ def invalidForm():
 kv = Builder.load_file("my.kv")
 
 sm = WindowManager()
-db = DataBase("demos/Kivy-GUI-Example-master/users.txt")
+db = DataBase("users.txt")
 
 screens = [LoginWindow(name="login"), CreateAccountWindow(name="create"),MainWindow(name="main")]
 for screen in screens:
@@ -102,11 +102,12 @@ for screen in screens:
 
 sm.current = "login"
 
-
 class MyMainApp(App):
     def build(self):
         return sm
 
-
 if __name__ == "__main__":
     MyMainApp().run()
+
+
+
